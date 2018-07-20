@@ -1,0 +1,96 @@
+SUMMARY
+-------
+This is a simple layer which can be used to experiment with core isolation
+techniques using the Wind River Linux CI branch.
+
+HOWTO
+-----
+
+a) Start by downloading and building the latest Wind River Linux CI branch
+  1- mkdir -p ~/builds/wlp
+  2- cd ~/builds/wlp
+  3- git clone --branch master-wr git://github.com/WindRiver-OpenSourceLabs/wrlinux-x
+  4- ./wrlinux-x/setup.sh --machine genericx86-64
+  5- . ./oe-init-build-env genericx86-64
+  6- bitbake core-image-minimal
+
+a+) If you have already completed (a) you can update to the latest CI content. You
+    should do this regularly to ensure you are getting the latest updates, especially
+    related to the kernel.
+  1- cd ~/builds/wlp/wrlinux-x
+  2- git pull
+  3- cd ..
+  4- ./wrlinux-x/setup.sh --machine genericx86-64
+
+b) Replace the 'local' layer with the contents of this repository
+  1- cd ~/builds/wlp/layers
+  2- rm -rf local
+  3- git clone git://github.com/masselstine/isol-local local
+
+c) Rebuild to get the updates provided by the inclusion of this layer content
+  1- cd ~/builds/wlp/genericx86-64
+  2- bitbake core-image-minimal
+
+NOTE: If there is an error building 'perf' you must clean it and attempt to build again:
+  1- bitbake perf -c cleansstate
+  2- bitbake core-image-minimal
+(this is an issue with perf and the dev kernel which must be fixed)
+
+
+KERNEL CMDLINE
+--------------
+
+Building with this layer should give you the necessary kernel Kconfig values to
+provide core isolation. In addition to kernel configuration several kernel
+cmdline options must be used at boot time. For details reference:
+https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/Documentation/admin-guide/kernel-parameters.txt
+
+1- isolcpus= -- example: "isolcpus=1,2,10-20,"
+2- nohz_full= -- example: "nohz_full=1"
+3- irqaffinity= -- example: "irqaffinity=0"
+4- rcu_nocbs= -- example: "rcu_nocbs=1"
+
+So for example to isolate core 1 you might use:
+isolcpus=1 nohz_full=1 rcu_nocbs=1 irqaffinity=0
+
+
+KERNEL THREADS
+--------------
+
+The 'rcu_nocbs' will create kernel threads for RCU callbacks for the
+specified CPUs which we can further ensure don't run on the CPUs that
+are being isolated. You can do this after the system starts by using
+taskset to affine them to the housekeeping CPU:
+
+for i in $(pgrep rcu); do taskset -pc 0 $i ; done
+
+This may not be absolutely necessary given the use of 'isolcpus' but
+is a good precaution none the less.
+
+
+KVM
+---
+
+If your intention is to run a KVM guest and associate virtual CPUs
+(vCPUs) with isolated physical CPUs (pCPUs) then you must perform
+several operations on the host after launching your guest...(TODO)
+
+
+MONITORING
+----------
+
+You can monitor for local timer interrupts on the isolated core using:
+
+cat /proc/interrupts | grep LOC
+
+For more advanced monitoring you might choose to use perf. For example
+to track kvm statistics over time with a running guest you might do:
+
+perf stat -e 'kvm:*' -a sleep 1h
+
+
+REFERENCES
+----------
+https://github.com/WindRiver-OpenSourceLabs/wrlinux-x
+https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/Documentation/admin-guide/kernel-parameters.txt
+http://perf.readthedocs.io/en/latest/system.html
